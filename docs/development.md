@@ -119,7 +119,8 @@ Development switches:
 | --- | --- |
 | `AERI_DATA_DIR=/tmp/aeri-data` | Use a throwaway data directory instead of `~/Library/Application Support/Aeri`. |
 | `AERI_START_URL=https://example.com` | Open one window on this address per opened profile instead of restoring each profile's session. Without it, a profile with no session opens Aeri Home. |
-| `AERI_REMOTE_DEBUGGING_PORT=9334` | Expose the DevTools protocol for scripted checks. |
+| `AERI_REMOTE_DEBUGGING_PORT=9334` | Opt in to a DevTools TCP port for scripted checks. Off by default. |
+| `AERI_DEVTOOLS_PIPE=1` | Opt in to the private DevTools pipe for development, including extension toolbar actions and tab-signal checks. Leave both debug options unset for website sign-in. |
 | `AERI_PROFILE=Work,Client` | Open (or create) these profiles, each in its own window, instead of the last-used one. For scripted checks; the Profiles menu is the Person's way. |
 | `AERI_DOWNLOAD_DIR=/tmp/aeri-downloads` | Save downloads here instead of `~/Downloads`. |
 | `AERI_REST_AFTER_SECS=20` | Rest tabs unseen this many seconds, checking as often, instead of the Person's period. |
@@ -201,10 +202,10 @@ Theme…, Edit Theme for All Windows…), the tab editor from the tab menu
 frontmost before every key or click: another app in front receives them.
 
 Running under `lldb` (launch or attach) raises a system "Developer Tools
-Access" dialog and stalls until it is answered. Aeri also needs fds 3 and 4
-free at start for its private DevTools pipe (ADR 0006); if a parent process
-leaves them open, Aeri logs "no DevTools pipe" and extension buttons do
-nothing.
+Access" dialog and stalls until it is answered. With `AERI_DEVTOOLS_PIPE=1`,
+Aeri also needs file descriptors 3 and 4 free at startup (ADR 0006). If a
+parent process leaves them open, Aeri logs "no DevTools pipe" and extension
+toolbar actions will not work.
 
 ### Keychain
 

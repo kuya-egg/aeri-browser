@@ -50,7 +50,7 @@ pub struct Runtime {
     ready: ReadySlot,
     sink: SinkSlot,
     started: Cell<bool>,
-    devtools: Result<DevTools, String>,
+    devtools: Result<Option<DevTools>, String>,
 }
 
 /// Loads CEF. Call first thing in `main`. In a CEF child process this does not
@@ -92,10 +92,16 @@ pub fn load() -> Result<Runtime, Error> {
         std::process::exit(code);
     }
     // Browser process from here on; nothing has opened files yet.
-    let devtools = devtools::reserve()
-        .and_then(DevTools::connect)
-        .map_err(|error| error.to_string());
-    devtools_pipe.store(devtools.is_ok(), Ordering::Relaxed);
+    // An active remote debugging session can prevent website sign-in.
+    let devtools = if std::env::var_os("AERI_DEVTOOLS_PIPE").is_some_and(|value| value == "1") {
+        devtools::reserve()
+            .and_then(DevTools::connect)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    } else {
+        Ok(None)
+    };
+    devtools_pipe.store(matches!(&devtools, Ok(Some(_))), Ordering::Relaxed);
     Ok(Runtime {
         _loader: loader,
         app,
@@ -107,10 +113,12 @@ pub fn load() -> Result<Runtime, Error> {
 }
 
 impl Runtime {
-    /// The private browser-target DevTools session, or why its pipe could not
-    /// be set up (then extension actions are unavailable).
-    pub fn devtools(&self) -> Result<&DevTools, &str> {
-        self.devtools.as_ref().map_err(String::as_str)
+    /// The opted-in browser-target DevTools session, or its setup error.
+    pub fn devtools(&self) -> Result<Option<&DevTools>, &str> {
+        self.devtools
+            .as_ref()
+            .map(Option::as_ref)
+            .map_err(String::as_str)
     }
 
     /// Initializes CEF. Main thread, inside GPUI's `run` callback, once.
@@ -165,7 +173,7 @@ impl Runtime {
         {
             return Err(Error::Initialize);
         }
-        if let Ok(devtools) = &self.devtools {
+        if let Ok(Some(devtools)) = self.devtools() {
             crate::signals::start(devtools);
         }
         Ok(())
@@ -225,8 +233,6 @@ wrap_app! {
                 if let Some(dir) = &self.tab_signals {
                     append_to_list(command_line, "load-extension", dir);
                 }
-            } else if browser_process {
-                tracing::warn!("no DevTools pipe: tabs will not report sound");
             }
         }
 

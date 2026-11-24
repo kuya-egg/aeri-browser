@@ -4,6 +4,10 @@
 
 Aeri is a browser for the Mac in Rust and GPUI, with Chromium (CEF) rendering the pages. This is what has landed so far, newest work first.
 
+### 24 November 2026
+
+- Remote debugging is off on normal launches so it does not interfere with website sign-in. Extension toolbar actions and tab media signals that use the DevTools pipe require a developer opt-in.
+
 ### 21 November 2026
 
 - Aeri’s black-and-white macOS disk image is a standard drag to Applications. On first launch, Aeri’s ribbon and wordmark ease into view in a silent film. Skip straight to the interactive tour or use it to choose a tab layout and appearance. Replay from Help → Welcome to Aeri….

@@ -346,7 +346,7 @@ pub fn start(runtime: Rc<Runtime>, config: Config, cx: &mut App) -> Result<()> {
         engine_ready: false,
         launch,
         welcome,
-        devtools: runtime.devtools().ok().cloned(),
+        devtools: runtime.devtools().ok().flatten().cloned(),
         dirty: HashSet::new(),
         windows: Vec::new(),
         little: little::Littles::default(),
