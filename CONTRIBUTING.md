@@ -11,10 +11,16 @@ Bug reports, documentation fixes, and code contributions are welcome. Be respect
 
 ## Prepare a pull request
 
-1. Fork the repo and branch from `main`. Use the setup for your platform below.
+1. Fork the repo, branch from the latest upstream `dev`, and open your PR against `dev`. Use the setup for your platform below.
 2. Keep the PR focused on one change. Add a regression test for bug fixes where practical, and use local fixtures instead of live websites in automated tests.
 3. Run the checks below for code changes. For UI changes, launch the bundle and include screenshots or a short recording. Describe what you tested and anything you couldn’t verify.
 4. Link the related issue if there is one. Update the relevant docs or changelog for user-visible changes. Keep third-party license notices and attribute borrowed code and assets.
+
+`dev` is the default branch for contributions. `main` is the release branch:
+maintainers promote `dev` to `main` by pull request using a merge commit so
+the branches keep their shared history. Both branches block force pushes and
+deletion, and require passing Windows core CI and resolved conversations
+before merging.
 
 ## Run the checks
 
