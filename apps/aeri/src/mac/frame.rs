@@ -427,7 +427,6 @@ impl Frame {
         }
         if let Some([side, strip]) = self.overlays.borrow().as_ref() {
             let rect = frame.frame();
-            let window_top = rect.origin.y + rect.size.height;
             let layout = self.layout_now(&frame);
             // A pinned strip stays; the sliding sidebar comes in below it.
             let strip_h = strip_height(&layout);
@@ -442,7 +441,10 @@ impl Frame {
                 NSSize::new(width, (rect.size.height - below).max(1.0)),
             );
             let strip_rect = NSRect::new(
-                NSPoint::new(rect.origin.x, window_top - strip_h),
+                NSPoint::new(
+                    rect.origin.x,
+                    reveal::TopLane::new(&frame, rect).strip_top - strip_h,
+                ),
                 NSSize::new(rect.size.width, strip_h),
             );
             // Out of sight they are refitted without being drawn, and left

@@ -26,12 +26,16 @@ use objc2_foundation::{
 };
 
 #[link(name = "AVFoundation", kind = "framework")]
-#[link(name = "QuartzCore", kind = "framework")]
-#[link(name = "CoreMedia", kind = "framework")]
 unsafe extern "C" {
     static AVPlayerItemDidPlayToEndTimeNotification: &'static NSString;
     static AVPlayerItemFailedToPlayToEndTimeNotification: &'static NSString;
 }
+
+#[link(name = "QuartzCore", kind = "framework")]
+unsafe extern "C" {}
+
+#[link(name = "CoreMedia", kind = "framework")]
+unsafe extern "C" {}
 
 /// The bundled film, in the app's `Resources`.
 const FILM: (&str, &str) = ("aeri-intro", "mp4");
@@ -166,7 +170,7 @@ impl Drop for IntroPlayer {
         let center = NSNotificationCenter::defaultCenter();
         for observer in &self.observers {
             // SAFETY: the observers were added to this center by `play`.
-            unsafe { center.removeObserver(&*(&*observer as *const _ as *const AnyObject)) };
+            unsafe { center.removeObserver(observer.as_ref()) };
         }
         // SAFETY: plain messages to our own player and view.
         unsafe {

@@ -252,7 +252,8 @@ When no region reserves layout, CEF occupies the entire usable content rect, wit
 
 ### 4.2 Reveal and focus
 
-- Active-window edge lanes: **4 pt** at the configured side and **4 pt** at the top. In a shared corner the top wins. A pointer must remain in the lane **120 ms** to open; departure cancels the timer. Pointer exit from region plus lane closes after **320 ms** when neither keyboard focus nor an owned menu, drag or popover is inside. Use macOS usable content/safe-area geometry and yield to the system fullscreen top reveal; do not use a global event monitor.
+- Active-window edge lanes: **4 pt** at the configured side and **4 pt** at the top. In a shared corner the top wins. A pointer must remain in the lane **120 ms** to open; departure cancels the timer. Pointer exit from region plus lane closes after **320 ms** when neither keyboard focus nor an owned menu, drag or popover is inside.
+- In macOS full screen, the top lane reaches the display edge. The tab strip sits below the system menu and title bar, and stays open as the pointer moves down to it. Reuse the existing mouse-move monitor for events outside Aeri's content only while Aeri is active; do not intercept system events or poll the pointer.
 - Pointer reveal never focuses address, moves the CEF viewport or intercepts a click on the unrevealed page edge. Keyboard calls reveal immediately and focus their designated target; `⌘S` focuses the active tab row or drawer header on a keyboard reveal. Escape closes innermost menu/suggestion list, then transient editing surface, then the called region and restores prior page focus. VoiceOver focus inside a region holds it open.
 - Hover hide pauses during button-down/drag or a native menu. On app deactivation, cancel timers and hide non-modal transient chrome; do not activate a different child to do so. No hover-tracking timer while the mouse is stationary except the one-shot show/hide deadlines.
 

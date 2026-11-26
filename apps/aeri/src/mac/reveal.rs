@@ -10,9 +10,9 @@
 //! here.
 //!
 //! One app-local event monitor watches mouse moves and clicks in Aeri's
-//! own windows (never consuming an event), and a global one watches moves
-//! over everything else, for the pointer just past the window's edge; each
-//! window keeps its own one-shot open and close timers. Nothing runs while
+//! own windows (never consuming an event). The existing global mouse-move
+//! monitor bridges the side overshoot and the system fullscreen menu band.
+//! Each window keeps its own one-shot open and close timers. Nothing runs while
 //! the mouse is still.
 
 use std::cell::{Cell, RefCell};
@@ -26,8 +26,9 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
     NSAnimatablePropertyContainer, NSAnimationContext, NSApplication,
     NSApplicationDidResignActiveNotification, NSEvent, NSEventMask, NSEventType, NSWindow,
+    NSWindowStyleMask,
 };
-use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol, NSTimer};
+use objc2_foundation::{NSNotification, NSNotificationCenter, NSObjectProtocol, NSRect, NSTimer};
 
 use super::frame::Frame;
 use crate::window_frame::strip_height;
@@ -57,6 +58,51 @@ pub enum Edge {
 }
 
 const EDGES: [Edge; 2] = [Edge::Top, Edge::Side];
+
+/// The pointer can enter from the physical display edge in full screen;
+/// the strip itself begins inside usable content, below the system menu.
+pub(super) struct TopLane {
+    edge: f64,
+    pub(super) strip_top: f64,
+}
+
+impl TopLane {
+    pub(super) fn new(frame: &NSWindow, rect: NSRect) -> Self {
+        let top = rect.origin.y + rect.size.height;
+        let fullscreen = frame.styleMask().contains(NSWindowStyleMask::FullScreen);
+        if fullscreen && let Some(screen) = frame.screen() {
+            let bounds = screen.frame();
+            let visible = screen.visibleFrame();
+            let screen_top = bounds.origin.y + bounds.size.height;
+            let safe_top = screen_top - screen.safeAreaInsets().top;
+            let ceiling = top
+                .min(safe_top)
+                .min(visible.origin.y + visible.size.height);
+            let usable = frame.convertRectToScreen(frame.contentLayoutRect());
+            // AppKit reveals a native title bar below the menu, over a
+            // full-size content view. Give it room even before it appears.
+            let style = frame.styleMask() & NSWindowStyleMask::Titled;
+            let mtm = MainThreadMarker::from(frame);
+            let content = NSWindow::contentRectForFrameRect_styleMask(rect, style, mtm);
+            let title_height = rect.size.height - content.size.height;
+            return Self {
+                edge: screen_top,
+                strip_top: (ceiling - title_height).min(usable.origin.y + usable.size.height),
+            };
+        }
+        Self {
+            edge: top,
+            strip_top: top,
+        }
+    }
+
+    fn hits(&self, y: f64, strip_height: f64) -> (bool, bool) {
+        (
+            (self.strip_top - TOP_EDGE..=self.edge).contains(&y),
+            (self.strip_top - strip_height..=self.edge).contains(&y),
+        )
+    }
+}
 
 /// A one-shot timer, and whether it opens (else closes).
 type Pending = Option<(bool, Retained<NSTimer>)>;
@@ -104,9 +150,18 @@ fn install() -> Vec<Retained<AnyObject>> {
         event.as_ptr()
     });
     let global = RcBlock::new(|_: NonNull<NSEvent>| {
-        // Moves over other apps' windows and the desktop: only where the
-        // pointer is, relative to our windows, matters.
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        if !app.isActive() {
+            return;
+        }
+        let key = app.keyWindow().or_else(|| app.mainWindow());
         for frame in frames() {
+            if frame.is_fullscreen() && !key.as_ref().is_some_and(|key| frame.owns(key)) {
+                continue;
+            }
             frame.pointer(NSEventType::MouseMoved, None);
         }
     });
@@ -116,6 +171,7 @@ fn install() -> Vec<Retained<AnyObject>> {
     let resign = RcBlock::new(|_: NonNull<NSNotification>| {
         for frame in frames() {
             frame.note_chrome_pointer(None);
+            frame.reveal.inside.set(false);
             frame.hide_chrome();
         }
     });
@@ -151,21 +207,42 @@ fn on_event(event: &NSEvent) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    let Some(window) = event.window(mtm) else {
-        return;
-    };
+    let window = event.window(mtm);
+    let kind = event.r#type();
     let frame = FRAMES.with_borrow(|frames| {
         frames
             .iter()
             .filter_map(Weak::upgrade)
-            .find(|f| f.owns(&window))
+            .find(|f| window.as_ref().is_some_and(|window| f.owns(window)))
     });
     if let Some(frame) = frame {
-        frame.pointer(event.r#type(), Some(&window));
+        frame.pointer(kind, window.as_deref());
+    } else if kind == NSEventType::MouseMoved {
+        // AppKit's own fullscreen title bar isn't one of our child
+        // windows, but the pointer is still approaching the top tabs.
+        let app = NSApplication::sharedApplication(mtm);
+        if app.isActive()
+            && let Some(key) = app.keyWindow().or_else(|| app.mainWindow())
+            && let Some(front) = FRAMES.with_borrow(|frames| {
+                frames
+                    .iter()
+                    .filter_map(Weak::upgrade)
+                    .find(|f| f.owns(&key) && f.is_fullscreen())
+            })
+        {
+            front.pointer(kind, None);
+        }
     }
 }
 
 impl Frame {
+    fn is_fullscreen(&self) -> bool {
+        self.frame
+            .borrow()
+            .as_ref()
+            .is_some_and(|frame| frame.styleMask().contains(NSWindowStyleMask::FullScreen))
+    }
+
     /// The frame itself or one of its child windows.
     fn owns(&self, window: &NSWindow) -> bool {
         let Some(frame) = self.frame.borrow().clone() else {
@@ -224,13 +301,6 @@ impl Frame {
         if !EDGES.into_iter().any(|edge| slides(&layout, edge)) {
             return;
         }
-        // Over other apps' windows only while Aeri is the front app.
-        if window.is_none()
-            && !NSApplication::sharedApplication(MainThreadMarker::from(&*frame)).isActive()
-        {
-            self.reveal.inside.set(false);
-            return;
-        }
         let rect = frame.frame();
         let at = NSEvent::mouseLocation();
         let y = rect.origin.y + rect.size.height - at.y;
@@ -253,7 +323,11 @@ impl Frame {
         let on_page = self.is_page(window);
         let strip_h = strip_height(&layout);
         let side_top = if layout.top_pinned { strip_h } else { 0.0 };
-        let top_slides = slides(&layout, Edge::Top);
+        let top_hit = if slides(&layout, Edge::Top) && (0.0..=rect.size.width).contains(&x) {
+            TopLane::new(&frame, rect).hits(at.y, strip_h)
+        } else {
+            (false, false)
+        };
         let reach = layout.column_width(rect.size.width);
         for edge in EDGES {
             if !slides(&layout, edge) {
@@ -265,9 +339,9 @@ impl Frame {
             }
             // In the shared corner the top wins.
             let (lane, region) = match edge {
-                Edge::Top => (in_window && y <= TOP_EDGE, in_window && y <= strip_h),
+                Edge::Top => top_hit,
                 Edge::Side => {
-                    let below = tall && y >= side_top && !(top_slides && y <= TOP_EDGE);
+                    let below = tall && y >= side_top && !top_hit.0;
                     (below && at_edge(EDGE), below && at_edge(reach))
                 }
             };
@@ -278,8 +352,7 @@ impl Frame {
                 } else {
                     self.cancel(edge);
                 }
-            } else if region && !(edge == Edge::Side && self.reveal.shown[1].get() && y <= strip_h)
-            {
+            } else if region && !(edge == Edge::Side && self.reveal.shown[1].get() && top_hit.1) {
                 self.reveal.entered[i].set(true);
                 self.cancel(edge);
             } else if clicked && on_page {
@@ -351,9 +424,15 @@ impl Frame {
             Motion::Standard => 0.18,
         };
         // Standard motion slides in from the edge; leaving only fades, so
-        // the overlay ends where the layout put it.
+        // the overlay ends where the layout put it. In full screen a slide
+        // would pass through the system menu and title bar.
         let target = overlay.frame();
-        let slide = shown && self.motion_now() == Motion::Standard;
+        let fullscreen = self
+            .frame
+            .borrow()
+            .as_ref()
+            .is_some_and(|frame| frame.styleMask().contains(NSWindowStyleMask::FullScreen));
+        let slide = shown && self.motion_now() == Motion::Standard && !fullscreen;
         if slide {
             let mut start = target;
             start.origin.y += SLIDE;
@@ -425,5 +504,24 @@ fn slides(layout: &Layout, edge: Edge) -> bool {
     match edge {
         Edge::Side => !layout.sidebar_pinned,
         Edge::Top => !layout.top_pinned && layout.tabs == TabPlace::Top,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TopLane;
+
+    #[test]
+    fn fullscreen_top_lane_bridges_the_menu_and_keeps_the_tabs_open() {
+        let top = TopLane {
+            edge: 1169.0,
+            strip_top: 1098.0,
+        };
+        assert_eq!(top.hits(1168.0, 52.0), (true, true));
+        assert_eq!(top.hits(1120.0, 52.0), (true, true));
+        assert_eq!(top.hits(1094.0, 52.0), (true, true));
+        assert_eq!(top.hits(1076.0, 52.0), (false, true));
+        assert_eq!(top.hits(1030.0, 52.0), (false, false));
+        assert_eq!(top.hits(1170.0, 52.0), (false, false));
     }
 }

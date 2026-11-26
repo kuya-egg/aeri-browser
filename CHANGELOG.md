@@ -7,6 +7,7 @@ Aeri is a browser for the Mac in Rust and GPUI, with Chromium (CEF) rendering th
 ### 26 November 2026
 
 - Pick any of 64 offline Blobatar faces in **Manage Profiles**, or reset to the automatic face. The sidebar avatar keeps your profile accent.
+- In macOS full screen, hover at the top to reveal top tabs below the system menu. They stay open as you move down to click a tab.
 
 ### 21 November 2026
 
