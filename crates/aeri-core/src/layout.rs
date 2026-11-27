@@ -107,6 +107,8 @@ pub struct Layout {
     /// The shown tab says its site, not its title; the title comes back
     /// under the pointer (`tabs.address`).
     pub address_on_tab: bool,
+    /// The shown tab's full address in a field across the top bar.
+    pub address_strip: bool,
     /// Numbers on the first nine tabs while ⌘ is held (`tabs.shortcuts`).
     pub tab_numbers: bool,
     /// Everything happens at once (`motion.instant`).
@@ -145,6 +147,7 @@ impl Default for Layout {
             glyph: Glyph::Letters,
             high_contrast: false,
             address_on_tab: true,
+            address_strip: false,
             tab_numbers: false,
             reduce_animations: false,
             light_motion: false,

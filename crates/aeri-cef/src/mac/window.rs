@@ -15,6 +15,9 @@ pub(crate) fn hide_window_of(view: *mut c_void) {
         let window: *mut AnyObject = msg_send![view.cast::<AnyObject>(), window];
         if let Some(window) = window.as_ref() {
             let _: () = msg_send![window, setAlphaValue: 0.0f64];
+            // Chrome may order the window back in; invisible, it must not
+            // take the clicks meant for the windows under it.
+            let _: () = msg_send![window, setIgnoresMouseEvents: true];
             let _: () = msg_send![window, orderOut: std::ptr::null::<AnyObject>()];
         }
     }

@@ -236,9 +236,12 @@ impl Shell {
                     cx,
                 );
             }
-            ChromeMsg::Width { width, done } => {
+            ChromeMsg::Width { width, rail, done } => {
                 // Live while dragging; kept when the edge is let go.
                 self.chrome.layout.sidebar_width = width;
+                if let Some(rail) = rail {
+                    self.chrome.layout.rail = rail;
+                }
                 if done {
                     tracing::info!(width, "sidebar resized");
                     self.change_layout(|_| {}, cx);

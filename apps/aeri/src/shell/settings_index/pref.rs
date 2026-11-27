@@ -36,6 +36,7 @@ pub enum Pref {
     Sleep,
     TabNumbers,
     AddressOnTab,
+    AddressStrip,
     /// Aeri, an extension, off.
     Provider,
     ConfirmQuit,
@@ -157,6 +158,7 @@ impl Pref {
             Self::Sleep => Value::Pick(m.sleep),
             Self::TabNumbers => Value::On(l.tab_numbers),
             Self::AddressOnTab => Value::On(l.address_on_tab),
+            Self::AddressStrip => Value::On(l.address_strip),
             Self::Provider => Value::Pick(m.provider),
             Self::ConfirmQuit => Value::On(p.general.confirm_quit),
             Self::DownloadsAsk => Value::On(p.general.downloads_ask),
@@ -299,6 +301,10 @@ impl Pref {
             Self::ReduceAnimations => layout.reduce_animations = on,
             Self::TabNumbers => layout.tab_numbers = on,
             Self::AddressOnTab => layout.address_on_tab = on,
+            Self::AddressStrip => {
+                layout.address_strip = on;
+                layout.top_pinned |= on;
+            }
             Self::PinnedRows => {
                 layout.favourites = if on {
                     FavouriteStyle::Rows

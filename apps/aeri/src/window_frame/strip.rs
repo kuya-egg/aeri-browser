@@ -1,8 +1,9 @@
 //! The strip across the top (Top Tabs, or a pinned top bar) and the window
 //! lights the strip and the sidebar's band share.
 
+use aeri_core::keymap::Shortcut;
 use aeri_core::layout::TabPlace;
-use gpui::{ClickEvent, Context, div, prelude::*, px};
+use gpui::{ClickEvent, Context, SharedString, div, prelude::*, px};
 
 use super::doors::symbol_door;
 use super::{COLUMN_PAD, CONTROLS_LEFT, Host, PAGE_EDGE, WindowFrame, drag, strip_height};
@@ -17,6 +18,8 @@ use crate::theme;
 const TRAILING: f32 = 12.;
 /// A tab's gap in the row (Search `Metrics.tabGap`).
 const TAB_GAP: f32 = 2.;
+/// The address field's width when the strip has room.
+const ADDRESS_WIDTH: f32 = 560.;
 
 impl WindowFrame {
     /// The strip (Top Tabs, or a pinned top bar), after Search's `TabBar`:
@@ -91,6 +94,11 @@ impl WindowFrame {
                 )
             })
             .child(drag(host).flex_1())
+            .when(self.layout.address_strip, |strip| {
+                strip
+                    .child(self.address_field(cx))
+                    .child(drag(host).flex_1())
+            })
             .when(self.popup_blocked, |strip| {
                 strip.child(self.notice(
                     "popup-blocked",
@@ -163,6 +171,66 @@ impl WindowFrame {
                 this.send(AppMsg::NewHome { window });
             }))
             .child(symbol("plus", 10., Weight::Medium, t.icon_muted))
+    }
+
+    /// The shown tab's full address, centred in the strip; a click opens
+    /// the address bar over it, as ⌘L does.
+    fn address_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme::tokens_in(self.window_id, cx);
+        let window = self.window_id;
+        let url = self
+            .tabs
+            .iter()
+            .find(|tab| tab.active)
+            .map(|tab| tab.url.as_str())
+            .filter(|url| !url.is_empty() && *url != "about:blank");
+        let secure = url.is_some_and(|url| url.starts_with("https://"));
+        let (text, ink) = match url {
+            Some(url) => (url.to_owned(), t.text),
+            None => ("Search or enter an address".to_owned(), t.quiet),
+        };
+        div()
+            .id("strip-address")
+            .role(gpui::Role::Button)
+            .aria_label("Address")
+            .flex()
+            .flex_shrink(1.)
+            .min_w_0()
+            .w(px(ADDRESS_WIDTH))
+            .h(px(28.))
+            .px(px(10.))
+            .gap(px(6.))
+            .items_center()
+            .rounded(px(8.))
+            .bg(theme::c(t.hover))
+            .cursor_text()
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, _| {
+                this.send(AppMsg::Shortcut {
+                    window,
+                    shortcut: Shortcut::FocusAddressBar,
+                });
+            }))
+            .child(symbol(
+                if secure {
+                    "lock.fill"
+                } else {
+                    "magnifyingglass"
+                },
+                10.,
+                Weight::Medium,
+                t.icon_muted,
+            ))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .whitespace_nowrap()
+                    .text_size(px(12.5))
+                    .text_color(theme::c(ink))
+                    .child(SharedString::from(text)),
+            )
     }
 
     /// No lights: in full screen, or with the buttons turned off.

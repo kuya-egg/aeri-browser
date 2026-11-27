@@ -298,8 +298,13 @@ pub enum AppMsg {
 pub enum ChromeMsg {
     /// Keep the chrome at `edge` beside the page, or let it slide in.
     Pin { edge: Edge, pinned: bool },
-    /// The sidebar's edge was dragged to `width`; `done` when let go.
-    Width { width: u16, done: bool },
+    /// The sidebar's edge was dragged to `width`, or into icons only
+    /// (`rail`, `None` keeps it); `done` when let go.
+    Width {
+        width: u16,
+        rail: Option<bool>,
+        done: bool,
+    },
     /// The pointer left the GPUI chrome for another native window.
     PointerLeft { window: u64 },
 }
