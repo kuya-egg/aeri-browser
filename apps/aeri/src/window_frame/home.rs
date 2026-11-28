@@ -209,6 +209,9 @@ impl WindowFrame {
             .top(px(insets.top as f32))
             .bottom(px(insets.bottom as f32))
             .rounded(px(insets.radius as f32))
+            .when(insets.flush_top, |home| {
+                home.rounded_tl(px(0.)).rounded_tr(px(0.))
+            })
             .overflow_hidden()
             .bg(c(background))
             .flex()
