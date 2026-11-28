@@ -13,6 +13,11 @@
 //!   instructions (see `dmg.rs`). Needs the terminal to be allowed to
 //!   control Finder; the previous image is replaced only once the new one
 //!   verifies.
+//! - `cargo xtask dev [args…]` — the edit loop: builds `aeri` and
+//!   `aeri-helper`, refreshes the executables inside an existing
+//!   `target/bundle/aeri.app` (assembling it first if missing), re-signs
+//!   the bundle shallowly and runs it with `args`. Run `bundle` instead
+//!   after changing resources or the Info.plist.
 //! - `cargo xtask isolation` — profile isolation checks against a local
 //!   test site, on the bundled app (see `isolation.rs`).
 
@@ -22,13 +27,112 @@ mod isolation;
 use anyhow::{Result, bail};
 
 fn main() -> Result<()> {
+    // `cargo run` (the `xtask` alias) exports the xtask's CARGO_MANIFEST_DIR
+    // and CARGO_PKG_* to us, and the nested `cargo build` inherits them.
+    // Build scripts that track those (ring) then rebuild, and everything
+    // above them, on every bundle and again on every plain `cargo build`:
+    // minutes lost per run. Nothing here reads them at run time.
+    let leaked: Vec<_> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .filter(|key| {
+            let key = key.to_string_lossy();
+            key == "CARGO_MANIFEST_DIR"
+                || key == "CARGO_CRATE_NAME"
+                || key.starts_with("CARGO_PKG_")
+                || key.starts_with("CARGO_BIN_")
+        })
+        .collect();
+    for key in leaked {
+        // SAFETY: single-threaded; nothing has been spawned yet.
+        unsafe { std::env::remove_var(key) };
+    }
     let task = std::env::args().nth(1).unwrap_or_default();
     match task.as_str() {
         "bundle" => bundle(std::env::args().nth(2).as_deref() == Some("--release")),
+        "dev" => dev(std::env::args().skip(2).collect()),
         "dmg" => dmg::run(),
         "isolation" => isolation::run(),
-        _ => bail!("usage: cargo xtask bundle [--release] | dmg | isolation"),
+        _ => bail!("usage: cargo xtask bundle [--release] | dev [args…] | dmg | isolation"),
     }
+}
+
+/// Edit loop: refresh the executables of an existing development bundle
+/// and run it. Executables are replaced by remove-and-copy, never
+/// overwritten (see `bundle`), and only the changed ones.
+#[cfg(target_os = "macos")]
+fn dev(args: Vec<String>) -> Result<()> {
+    use std::path::Path;
+
+    for bin in ["aeri", "aeri-helper"] {
+        let status = std::process::Command::new(env!("CARGO"))
+            .args(["build", "--bin", bin])
+            .status()?;
+        if !status.success() {
+            bail!("build of {bin} failed: {status}");
+        }
+    }
+    let app = Path::new("target/bundle/aeri.app");
+    if !app.join("Contents/MacOS/aeri").exists() {
+        bundle(false)?;
+        return run_bundle(app, &args);
+    }
+    let sign = |path: &Path| -> Result<()> {
+        let status = std::process::Command::new("codesign")
+            .args(["--force", "--sign", "-"])
+            .arg(path)
+            .status()?;
+        if !status.success() {
+            bail!("codesign of {} failed: {status}", path.display());
+        }
+        Ok(())
+    };
+    // Replaced by remove-and-copy, and only when the build is newer.
+    let refresh = |from: &Path, to: &Path| -> Result<bool> {
+        let newer = to.metadata()?.modified()? < from.metadata()?.modified()?;
+        if newer {
+            std::fs::remove_file(to)?;
+            std::fs::copy(from, to)?;
+        }
+        Ok(newer)
+    };
+    let mut changed = refresh(
+        Path::new("target/debug/aeri"),
+        &app.join("Contents/MacOS/aeri"),
+    )?;
+    for entry in std::fs::read_dir(app.join("Contents/Frameworks"))? {
+        let helper = entry?.path();
+        let Some(stem) = helper.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if stem.starts_with("aeri Helper") {
+            let exe = helper.join("Contents/MacOS").join(stem);
+            if refresh(Path::new("target/debug/aeri-helper"), &exe)? {
+                sign(&helper)?;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        // Shallow: signs the main executable and reseals the bundle; the
+        // framework and untouched helpers keep their signatures.
+        sign(app)?;
+    }
+    run_bundle(app, &args)
+}
+
+/// Replaces this process with the bundle's executable, for its logs.
+#[cfg(target_os = "macos")]
+fn run_bundle(app: &std::path::Path, args: &[String]) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let err = std::process::Command::new(app.join("Contents/MacOS/aeri"))
+        .args(args)
+        .exec();
+    bail!("could not run the bundle: {err}")
+}
+
+#[cfg(not(target_os = "macos"))]
+fn dev(_args: Vec<String>) -> Result<()> {
+    bail!("bundling is only needed on macOS")
 }
 
 #[cfg(target_os = "macos")]
