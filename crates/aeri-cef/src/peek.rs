@@ -1,11 +1,12 @@
 //! Peek at a link (Search `Peek.swift`, `Browser.swift:7936-7945`): the
 //! adapter's part. Chromium gives `OnOpenURLFromTab` and `OnBeforePopup`
 //! only a window disposition, which cannot tell ⌥⇧-click from ⌥⌘-click, so
-//! the click is read in the page: a capture-phase `click` listener, put in
-//! with `Page.addScriptToEvaluateOnNewDocument`, compares the modifier set
-//! exactly with the chosen one (⌃ never peeks), cancels the click and
-//! reports the link through a `Runtime.addBinding` function (the payload
-//! arrives as `Runtime.bindingCalled`, [`event`]).
+//! the click is read in the page: a capture-phase `click` listener, run in
+//! an isolated world of Aeri's own for each document ([`set_click`]),
+//! compares the modifier set exactly with the chosen one (⌃ never peeks),
+//! cancels the click and reports the link through a `Runtime.addBinding`
+//! function that exists only in that world (the payload arrives as
+//! `Runtime.bindingCalled`, [`event`]).
 //!
 //! The peek's own browser is never given the listener: links in a peek
 //! just navigate it. Its keys are read in [`pre_key`] (Esc closes it, ⌘↩
@@ -28,9 +29,12 @@ pub const SHIFT: u8 = 1;
 pub const OPTION: u8 = 2;
 pub const COMMAND: u8 = 4;
 
-/// The name of the function the page's script reports through. The script
-/// takes it out of the page's reach before any page script runs.
+/// The name of the function the listener reports through. It exists only
+/// in Aeri's isolated world ([`WORLD`]), never in the page's.
 const BINDING: &str = "aeriPeek";
+
+/// The isolated world the listener runs in.
+const WORLD: &str = "aeri-peek";
 
 /// Search `App.swift:1590-1596` (Esc) and `1676-1689` (⌘↩).
 const VK_ESCAPE: i32 = 27;
@@ -82,14 +86,16 @@ pub fn set_peek_tabs(tabs: &[TabId]) {
 /// What a tab was last told about the click.
 #[derive(Default)]
 pub(crate) struct State {
-    /// Bumped by every change, so a slow answer can tell it is out of date.
-    generation: Cell<u32>,
-    /// The script that runs on new documents, once the session named it.
-    installed: RefCell<Option<String>>,
+    /// Bumped by every new document, so an answer about an old one is
+    /// dropped.
+    document: Cell<u32>,
     /// The mask the page was last told.
     mask: Cell<u8>,
-    /// `Runtime` is enabled and the binding exists.
-    bound: Cell<bool>,
+    /// Aeri's world in the current document, holding the function and the
+    /// listener, once made.
+    world: Cell<Option<i64>>,
+    /// A world is being made for the current document.
+    making: Cell<bool>,
 }
 
 /// The page's script for `mask`: installs the listener once per document
@@ -136,68 +142,107 @@ fn log(what: &'static str) -> impl FnOnce(Result<Value, String>) + 'static {
 }
 
 /// Makes the page peek at a link clicked with `mask` (bits of [`SHIFT`],
-/// [`OPTION`] and [`COMMAND`]; 0 for none): on this document and every one
-/// after. A no-op when the page was last told the same.
+/// [`OPTION`] and [`COMMAND`]; 0 for none). The listener and the function
+/// it reports through live in an isolated world of Aeri's own
+/// (`Page.createIsolatedWorld`, made again for each document): the page
+/// cannot reach either, and `Runtime` is never enabled, so the page's
+/// console calls and script contexts are not streamed to the browser for
+/// the tab's whole life. A no-op when the page was last told the same.
 pub(crate) fn set_click(cdp: &Rc<Cdp>, host: &BrowserHost, mask: u8) {
-    let state = &cdp.peek;
-    if state.mask.replace(mask) == mask {
+    if cdp.peek.mask.replace(mask) == mask {
         return;
     }
-    let generation = state.generation.get().wrapping_add(1);
-    state.generation.set(generation);
-    if !state.bound.replace(true) {
-        cdp.call(host, "Runtime.enable", &json!({}), log("enabling Runtime"));
-        cdp.call(
-            host,
-            "Runtime.addBinding",
-            &json!({ "name": BINDING }),
-            log("adding the binding"),
-        );
-    }
-    if let Some(id) = state.installed.take() {
-        remove(cdp, host, id);
-    }
-    let source = script(mask);
-    if mask != 0 {
-        let (weak, owner) = (Rc::downgrade(cdp), host.clone());
-        cdp.call(
-            host,
-            "Page.addScriptToEvaluateOnNewDocument",
-            &json!({ "source": source }),
-            move |reply| {
-                let id = match reply {
-                    Ok(result) => result["identifier"].as_str().map(str::to_owned),
-                    Err(error) => {
-                        tracing::warn!(error, "peek: the script was not installed");
-                        None
-                    }
-                };
-                let (Some(id), Some(cdp)) = (id, weak.upgrade()) else {
-                    return;
-                };
-                if cdp.peek.generation.get() == generation {
-                    *cdp.peek.installed.borrow_mut() = Some(id);
-                } else {
-                    // Changed again before the answer: this one is stale.
-                    remove(&cdp, &owner, id);
-                }
-            },
-        );
-    }
-    cdp.call(
-        host,
-        "Runtime.evaluate",
-        &json!({ "expression": source }),
-        log("applying to the page"),
-    );
+    install(cdp, host);
 }
 
-fn remove(cdp: &Cdp, host: &BrowserHost, id: String) {
+/// `Page.frameNavigated`: a new document in the main frame gets the
+/// listener again, in a new world.
+pub(crate) fn navigated(cdp: &Rc<Cdp>, host: &BrowserHost, params: Option<&[u8]>) {
+    let Some(params) = parse(params) else { return };
+    if !params["frame"]["parentId"].is_null() {
+        return;
+    }
+    let state = &cdp.peek;
+    state.document.set(state.document.get().wrapping_add(1));
+    state.world.set(None);
+    state.making.set(false);
+    install(cdp, host);
+}
+
+/// Tells the current document's world the mask, making the world first
+/// if it has none.
+fn install(cdp: &Rc<Cdp>, host: &BrowserHost) {
+    let state = &cdp.peek;
+    let mask = state.mask.get();
+    if let Some(world) = state.world.get() {
+        cdp.call(
+            host,
+            "Runtime.evaluate",
+            &json!({ "expression": script(mask), "contextId": world }),
+            log("applying to the page"),
+        );
+        return;
+    }
+    if mask == 0 || state.making.replace(true) {
+        return;
+    }
+    let document = state.document.get();
+    let (weak, owner) = (Rc::downgrade(cdp), host.clone());
+    cdp.call(host, "Page.getFrameTree", &json!({}), move |reply| {
+        let Some(cdp) = weak
+            .upgrade()
+            .filter(|cdp| cdp.peek.document.get() == document)
+        else {
+            return;
+        };
+        let frame = match reply {
+            Ok(tree) => tree["frameTree"]["frame"]["id"].as_str().map(str::to_owned),
+            Err(error) => {
+                tracing::warn!(error, "peek: no frame to listen in");
+                None
+            }
+        };
+        let Some(frame) = frame else {
+            cdp.peek.making.set(false);
+            return;
+        };
+        make_world(&cdp, &owner, frame, document);
+    });
+}
+
+fn make_world(cdp: &Rc<Cdp>, host: &BrowserHost, frame: String, document: u32) {
+    let (weak, owner) = (Rc::downgrade(cdp), host.clone());
     cdp.call(
         host,
-        "Page.removeScriptToEvaluateOnNewDocument",
-        &json!({ "identifier": id }),
-        log("removing the old script"),
+        "Page.createIsolatedWorld",
+        &json!({ "frameId": frame, "worldName": WORLD }),
+        move |reply| {
+            let Some(cdp) = weak
+                .upgrade()
+                .filter(|cdp| cdp.peek.document.get() == document)
+            else {
+                return;
+            };
+            cdp.peek.making.set(false);
+            let world = match reply {
+                Ok(result) => result["executionContextId"].as_i64(),
+                Err(error) => {
+                    tracing::warn!(error, "peek: no world of our own");
+                    None
+                }
+            };
+            let Some(world) = world else { return };
+            // Commands on a session run in order: the function exists
+            // before the script that takes it runs.
+            cdp.call(
+                &owner,
+                "Runtime.addBinding",
+                &json!({ "name": BINDING, "executionContextId": world }),
+                log("adding the binding"),
+            );
+            cdp.peek.world.set(Some(world));
+            install(&cdp, &owner);
+        },
     );
 }
 

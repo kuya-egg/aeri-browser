@@ -237,6 +237,8 @@ pub enum AppMsg {
     /// Once a minute: rest tabs unseen past the Person's period, or while
     /// memory stays short.
     RestCheck,
+    /// The changed sessions are due to be written.
+    FlushSessions,
     /// What the tab rows read from their pages and the player does.
     TabSignal(super::tab_signals::TabSignal),
     /// Reading mode's answers from the page.

@@ -80,6 +80,13 @@ impl Shell {
                         tracing::error!(%err, %profile, "could not open profile.db; nothing is recorded")
                     })
                     .ok();
+                let history = db.as_ref().and_then(|_| {
+                    super::history_writer::HistoryWriter::spawn(&path)
+                        .inspect_err(|err| {
+                            tracing::error!(%err, %profile, "no history writer; history is not recorded")
+                        })
+                        .ok()
+                });
                 let keep_awake = db
                     .as_ref()
                     .and_then(|db| db.keep_awake_sites().ok())
@@ -95,6 +102,7 @@ impl Shell {
                     OpenProfile {
                         context,
                         db,
+                        history,
                         ready: false,
                         plans: vec![plan],
                         extensions: Vec::new(),

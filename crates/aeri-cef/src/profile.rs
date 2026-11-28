@@ -50,6 +50,17 @@ impl ProfileContext {
     ) -> Result<Self, Error> {
         let path = root_cache_path.join(profile.to_string());
         std::fs::create_dir_all(&path).map_err(|e| Error::Io(e.to_string()))?;
+        // Every Aeri tab is a Chrome window, so Chrome's session service
+        // records them; reopening the profile, Chrome restores them as
+        // windows no Aeri tab owns (blank, ordered in, a renderer each),
+        // and they are recorded again. They piled up across launches
+        // (Observed: 63 windows, 70 renderers for 18 tabs). Aeri restores
+        // its own session; Chrome's is dropped before Chrome reads it.
+        match std::fs::remove_dir_all(path.join("Sessions")) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!(%error, "could not drop Chrome's session"),
+        }
         let settings = RequestContextSettings {
             cache_path: CefString::from(path.to_string_lossy().as_ref()),
             persist_session_cookies: 1,

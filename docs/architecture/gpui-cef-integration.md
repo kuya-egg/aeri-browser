@@ -130,7 +130,9 @@ source keep running during a tracking loop is Inferred and tested in S3.
 
 The pump must not become a fixed 60 Hz timer. A fixed timer defeats GPUI's
 idle pause on macOS 14+ ([gpui.md Q9](../research/gpui.md)). The pump runs
-when CEF asks for work.
+when CEF asks for work. Its fallback tick is cefclient's 30 Hz while CEF
+asks for immediate work, and 4 Hz once it has asked for none for about a
+second (`mac/pump.rs`); a request with a delay still fires on time.
 
 ## Input and focus hand-off
 

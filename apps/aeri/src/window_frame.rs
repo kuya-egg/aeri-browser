@@ -200,6 +200,20 @@ impl WindowFrame {
         }
     }
 
+    /// Replaces one tab's row in place, when it is listed and changed: a
+    /// page event on a tab the window does not show touches nothing else.
+    /// Returns whether the row is listed.
+    pub fn set_tab_row(&mut self, row: SidebarTab, cx: &mut Context<Self>) -> bool {
+        let Some(old) = self.tabs.iter_mut().find(|tab| tab.id == row.id) else {
+            return false;
+        };
+        if *old != row {
+            *old = row;
+            cx.notify();
+        }
+        true
+    }
+
     /// Mirrors the profile's spaces, in order.
     pub fn set_spaces(&mut self, spaces: Vec<SpaceChip>, cx: &mut Context<Self>) {
         if self.spaces != spaces {

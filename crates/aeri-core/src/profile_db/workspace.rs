@@ -76,58 +76,64 @@ impl ProfileDb {
                 Some(Shown::Favourite(ix)) => (None, Some(ix as i64)),
                 None => (None, None),
             };
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO spaces (id, position, name, colour, icon, shown_tab, shown_favourite,
                                      theme)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    space.id.0,
-                    position as i64,
-                    space.name,
-                    space.colour,
-                    space.icon,
-                    shown_tab,
-                    shown_favourite,
-                    space.theme,
-                ],
-            )?;
+            )?
+            .execute(params![
+                space.id.0,
+                position as i64,
+                space.name,
+                space.colour,
+                space.icon,
+                shown_tab,
+                shown_favourite,
+                space.theme,
+            ])?;
             for (position, tab) in space.tabs.iter().enumerate() {
-                tx.execute(
+                tx.prepare_cached(
                     "INSERT INTO space_tabs (space_id, position, url, title, pinned, name, icon)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    params![
-                        space.id.0,
-                        position as i64,
-                        tab.url,
-                        tab.title,
-                        tab.pinned,
-                        tab.name,
-                        tab.icon,
-                    ],
-                )?;
+                )?
+                .execute(params![
+                    space.id.0,
+                    position as i64,
+                    tab.url,
+                    tab.title,
+                    tab.pinned,
+                    tab.name,
+                    tab.icon,
+                ])?;
             }
         }
         for (position, tab) in workspace.favourites.iter().enumerate() {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO favourites (position, url, title, name, icon)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![position as i64, tab.url, tab.title, tab.name, tab.icon],
-            )?;
+            )?
+            .execute(params![
+                position as i64,
+                tab.url,
+                tab.title,
+                tab.name,
+                tab.icon
+            ])?;
         }
         for (position, window) in workspace.windows.iter().enumerate() {
             let p = window.placement;
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO windows (position, x, y, width, height, space_id)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    position as i64,
-                    p.map(|p| p.x),
-                    p.map(|p| p.y),
-                    p.map(|p| p.width),
-                    p.map(|p| p.height),
-                    window.space.0,
-                ],
-            )?;
+            )?
+            .execute(params![
+                position as i64,
+                p.map(|p| p.x),
+                p.map(|p| p.y),
+                p.map(|p| p.width),
+                p.map(|p| p.height),
+                window.space.0,
+            ])?;
         }
         tx.commit()?;
         Ok(())

@@ -20,7 +20,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use aeri_core::engine::Command;
 use aeri_core::ids::TabId;
@@ -50,6 +50,9 @@ const PICTURE_WIDTH: f64 = 180.;
 const KEPT: usize = 10;
 /// A picture asked for that is not answered by now is asked for afresh next time.
 const PICTURE_TIMEOUT: Duration = Duration::from_secs(2);
+/// A picture of the page a tab still shows, younger than this, is not taken
+/// again when the Person leaves the tab.
+const FRESH: Duration = Duration::from_secs(30);
 
 /// What the switcher's keys, panel and pictures tell the shell.
 #[derive(Debug)]
@@ -103,6 +106,8 @@ struct Session {
 struct Picture {
     url: String,
     image: Arc<RenderImage>,
+    /// When the page was pictured.
+    taken: Instant,
 }
 
 thread_local! {
@@ -589,6 +594,7 @@ impl Shell {
                 Picture {
                     url: url.to_owned(),
                     image,
+                    taken: Instant::now(),
                 },
             )
         });
@@ -629,9 +635,25 @@ impl Shell {
         }
     }
 
-    /// Going to another tab: the one on screen is pictured as it goes.
+    /// Going to another tab: the one on screen is pictured as it goes,
+    /// unless the switcher already holds a picture of the same page taken
+    /// within [`FRESH`]. Each picture makes the page draw, encode and send a
+    /// PNG that is then decoded on the main thread; switching back and
+    /// forth should not pay that every time.
     pub(super) fn switcher_leaving(&self, window_id: u64, cx: &mut App) {
-        if let Some(shown) = self.window(window_id).and_then(|w| w.shown()) {
+        let Some(w) = self.window(window_id) else {
+            return;
+        };
+        let Some(shown) = w.shown() else {
+            return;
+        };
+        let url = w.tabs.get(shown).map(|item| item.value.url());
+        let fresh = PICTURES.with_borrow(|pictures| {
+            pictures.get(&shown).is_some_and(|picture| {
+                Some(picture.url.as_str()) == url && picture.taken.elapsed() < FRESH
+            })
+        });
+        if !fresh {
             self.switcher_shoot(shown, cx);
         }
     }

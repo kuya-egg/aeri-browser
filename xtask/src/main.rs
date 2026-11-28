@@ -6,6 +6,8 @@
 //!   use day to day: motion in a development build stutters. The CEF
 //!   framework and helper apps are put in place; CEF finds them through
 //!   this layout, so the app cannot run outside it on macOS.
+//! - `cargo xtask install` — `bundle --release`, then quits a running Aeri,
+//!   replaces `/Applications/Aeri.app` with the new build and opens it.
 //! - `cargo xtask dmg` — packages the already built, signed
 //!   `target/release-bundle/aeri.app` (run `bundle --release` first) into
 //!   the read-only `target/release-bundle/Aeri.dmg`: the bundle, an
@@ -25,10 +27,75 @@ fn main() -> Result<()> {
     let task = std::env::args().nth(1).unwrap_or_default();
     match task.as_str() {
         "bundle" => bundle(std::env::args().nth(2).as_deref() == Some("--release")),
+        "install" => install(),
         "dmg" => dmg::run(),
         "isolation" => isolation::run(),
-        _ => bail!("usage: cargo xtask bundle [--release] | dmg | isolation"),
+        _ => bail!("usage: cargo xtask bundle [--release] | install | dmg | isolation"),
     }
+}
+
+/// The certificate bundles are signed with; `-` is ad hoc.
+#[cfg(target_os = "macos")]
+fn sign_identity() -> String {
+    const LOCAL: &str = "Aeri Local Signing";
+    if let Ok(identity) = std::env::var("AERI_SIGN_IDENTITY") {
+        return identity;
+    }
+    let listed = std::process::Command::new("security")
+        .args(["find-identity", "-p", "codesigning"])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{LOCAL}\"")))
+        .unwrap_or(false);
+    if listed { LOCAL.into() } else { "-".into() }
+}
+
+/// Builds the release bundle, quits a running Aeri (an orderly quit, so
+/// its windows come back), puts the new app in /Applications and opens it.
+#[cfg(target_os = "macos")]
+fn install() -> Result<()> {
+    const INSTALLED: &str = "/Applications/Aeri.app";
+    let main = format!("{INSTALLED}/Contents/MacOS/aeri$");
+    bundle(true)?;
+    let running = || {
+        std::process::Command::new("pgrep")
+            .args(["-f", &main])
+            .output()
+            .is_ok_and(|out| out.status.success())
+    };
+    if running() {
+        println!("quitting Aeri");
+        // SIGTERM takes Aeri's orderly quit (`shell::quit`). An Apple
+        // Event "quit" may reach a helper instead: the helper apps carry
+        // the app's own bundle id.
+        std::process::Command::new("pkill")
+            .args(["-TERM", "-f", &main])
+            .status()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while running() {
+            if std::time::Instant::now() > deadline {
+                bail!("Aeri did not quit; quit it and run `cargo xtask install` again");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+    let installed = std::path::Path::new(INSTALLED);
+    if installed.exists() {
+        std::fs::remove_dir_all(installed)?;
+    }
+    let status = std::process::Command::new("ditto")
+        .args(["target/release-bundle/aeri.app", INSTALLED])
+        .status()?;
+    if !status.success() {
+        bail!("copying to {INSTALLED} failed: {status}");
+    }
+    std::process::Command::new("open").arg(INSTALLED).status()?;
+    println!("installed {INSTALLED}");
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install() -> Result<()> {
+    bail!("installing is only needed on macOS")
 }
 
 #[cfg(target_os = "macos")]
@@ -195,11 +262,19 @@ fn bundle(release: bool) -> Result<()> {
             bail!("could not set {key}: {status}");
         }
     }
-    // Ad-hoc signature over the whole bundle (helpers and framework
-    // included); the per-binary linker signatures leave it unverifiable.
-    // Hardened runtime stays off for development builds.
+    // One signature over the whole bundle (helpers and framework included);
+    // the per-binary linker signatures leave it unverifiable. Hardened
+    // runtime stays off for development builds.
+    //
+    // Ad hoc unless a certificate is found. An ad hoc signature changes with
+    // every build, and the Keychain item "Aeri Safe Storage" trusts one
+    // signature, so each new build asks for the login password again. A
+    // code-signing certificate (a self-signed one is enough) keeps the
+    // signature the same across builds: `AERI_SIGN_IDENTITY`, or else
+    // "Aeri Local Signing" when the keychain has it.
+    let identity = sign_identity();
     let status = std::process::Command::new("codesign")
-        .args(["--force", "--deep", "--sign", "-"])
+        .args(["--force", "--deep", "--sign", &identity])
         .arg(&app)
         .status()?;
     if !status.success() {

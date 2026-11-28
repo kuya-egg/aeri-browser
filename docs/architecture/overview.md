@@ -100,8 +100,9 @@ flowchart TB
   many profiles are unmeasured (spike S4).
 - Main thread: GPUI owns `[NSApp run]`. CEF runs with an external pump. See
   [gpui-cef-integration.md](gpui-cef-integration.md).
-- Database work runs on GPUI's background executor. The UI never waits on
-  disk.
+- History is written on a per-profile writer thread with its own
+  connection. The workspace snapshot is written on the main thread, at most
+  once a second after a change (and at once on quit or last-window close).
 
 ## Engine seam
 

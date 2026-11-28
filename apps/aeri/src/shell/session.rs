@@ -1,7 +1,7 @@
 //! The profile's records of its windows: the workspace snapshot, written
-//! once per handled message for every profile that changed.
+//! shortly after it changes for every profile that changed.
 
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use aeri_core::appearance::Recipe;
 use aeri_core::ids::{ProfileId, TabId};
@@ -9,9 +9,13 @@ use aeri_core::profile_db::{Placement, SavedSpace, SavedTab, SavedWindow, Shown,
 use aeri_core::workspace::TabList;
 use gpui::App;
 
-use super::Shell;
 use super::tabs::TabEntry;
 use super::windows::AeriWindow;
+use super::{AppMsg, Shell};
+
+/// How long after a change the changed workspaces are written. Changes in
+/// between join the same write.
+const SAVE_AFTER: Duration = Duration::from_secs(1);
 
 pub(super) fn now() -> i64 {
     SystemTime::now()
@@ -20,13 +24,32 @@ pub(super) fn now() -> i64 {
 }
 
 impl Shell {
-    /// Notes that a profile's workspace changed; it is written once the
-    /// current message is handled ([`Shell::flush_sessions`]).
+    /// Notes that a profile's workspace changed; it is written soon after
+    /// ([`Shell::flush_sessions`]).
     pub(super) fn touch(&mut self, profile: ProfileId) {
         self.dirty.insert(profile);
     }
 
+    /// After each batch of messages: schedules one write of the changed
+    /// workspaces [`SAVE_AFTER`] from now. A page load changes its tab's
+    /// address and title several times; each change rewrote the whole
+    /// workspace on the main thread, which CEF's navigation work waits on.
+    /// Quitting and closing a profile's last window still write at once.
     pub(super) fn flush_sessions(&mut self, cx: &mut App) {
+        if self.dirty.is_empty() || self.flush_scheduled {
+            return;
+        }
+        self.flush_scheduled = true;
+        let tx = self.tx.clone();
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(SAVE_AFTER).await;
+            let _ = tx.unbounded_send(AppMsg::FlushSessions);
+        })
+        .detach();
+    }
+
+    pub(super) fn save_dirty_sessions(&mut self, cx: &mut App) {
+        self.flush_scheduled = false;
         for profile in std::mem::take(&mut self.dirty) {
             self.save_session(profile, cx);
         }

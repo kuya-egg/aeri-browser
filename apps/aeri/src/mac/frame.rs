@@ -418,10 +418,14 @@ impl Frame {
             {
                 continue;
             }
-            let visible = active == Some(*id);
-            let rect = if visible { focused } else { page };
-            if tab.frame() != rect {
-                tab.setFrame_display(rect, visible);
+            // A hidden tab is refitted when it is shown (`activate`), not
+            // here: resizing it makes its renderer lay the page out again,
+            // for every loaded tab on every frame of a live resize.
+            if active != Some(*id) {
+                continue;
+            }
+            if tab.frame() != focused {
+                tab.setFrame_display(focused, true);
             }
             round_page(tab, radius);
         }

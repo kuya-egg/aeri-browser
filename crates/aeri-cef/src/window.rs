@@ -525,6 +525,11 @@ wrap_dev_tools_message_observer! {
             let method = method.map(ToString::to_string).unwrap_or_default();
             if method != "Page.windowOpen" {
                 if let Some(state) = self.state.upgrade() {
+                    if method == "Page.frameNavigated"
+                        && let Some(host) = browser.and_then(|browser| browser.host())
+                    {
+                        crate::peek::navigated(&state.cdp, &host, params);
+                    }
                     crate::peek::event(state.tab, &state.sink, &method, params);
                     crate::reader::event(state.tab, &state.sink, &method, params);
                 }

@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 
 use aeri_cef::TaskMonitor;
 use aeri_core::ids::{ProfileId, TabId};
-use aeri_core::resources::{Candidate, awake_reason, idle_rests, pressure_rests};
+use aeri_core::resources::{
+    Candidate, SAVING_POWER_REST_AFTER, awake_reason, idle_rests, pressure_rests,
+};
 use aeri_core::store::AppDb;
 use aeri_core::trust::site_of;
 use aeri_core::workspace::Item;
@@ -192,6 +194,10 @@ impl Shell {
         self.close_left_alone(cx);
         let candidates = self.rest_candidates();
         let mut picks = match self.resting.after {
+            // While the Mac saves power, tabs rest sooner (never later).
+            Some(after) if mac::saving_power() => {
+                idle_rests(&candidates, after.min(SAVING_POWER_REST_AFTER))
+            }
             Some(after) => idle_rests(&candidates, after),
             None => Vec::new(),
         };

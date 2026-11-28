@@ -4,6 +4,12 @@
 
 Aeri is a browser for the Mac in Rust and GPUI, with Chromium (CEF) rendering the pages. This is what has landed so far, newest work first.
 
+### 28 November 2026
+
+- Navigation does less on the main thread, which Chromium shares: page events are handled in batches, the session is saved at most once a second, and history is written on a thread of its own.
+- Tabs rest after half an hour unseen by default (15 minutes at most in Low Power Mode or when the Mac runs hot), and links opened in the background wait to load until you go to them. Hidden tabs are no longer resized while the window resizes.
+- Peek no longer keeps the DevTools Runtime domain on in every tab: its click listener runs in an isolated world of Aeri's own, which pages cannot reach. An idle browser wakes 4 times a second instead of 30. Page events on tabs you are not looking at redraw only their own sidebar row.
+
 ### 26 November 2026
 
 - Pick any of 64 offline Blobatar faces in **Manage Profiles**, or reset to the automatic face. The sidebar avatar keeps your profile accent.

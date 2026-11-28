@@ -495,9 +495,9 @@ mod tests {
     }
 
     #[test]
-    fn rest_after_defaults_to_an_hour_and_never_is_kept() {
+    fn rest_after_defaults_to_half_an_hour_and_never_is_kept() {
         let db = AppDb::open_in_memory().unwrap();
-        assert_eq!(db.rest_after().unwrap(), Some(Duration::from_secs(3_600)));
+        assert_eq!(db.rest_after().unwrap(), Some(Duration::from_secs(1_800)));
         db.set_rest_after(None).unwrap();
         assert_eq!(db.rest_after().unwrap(), None);
         db.set_rest_after(Some(Duration::from_secs(900))).unwrap();

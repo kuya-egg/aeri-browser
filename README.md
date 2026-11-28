@@ -113,6 +113,13 @@ open target/bundle/aeri.app
 The first build downloads the pinned CEF binaries automatically. You don’t need
 to compile Chromium from source for the standard build.
 
+To build an optimised Aeri and install it in /Applications (quitting and
+reopening a running Aeri):
+
+```bash
+cargo xtask install
+```
+
 To build the release macOS installer DMG:
 
 ```bash
