@@ -83,6 +83,14 @@ bundle. It deletes the old bundle first: macOS
 caches code signatures per file, and copying a new binary over a running or
 recently run one gets it killed ("load code signature error 2").
 
+To use your build day to day, one command builds the release bundle, quits
+a running Aeri (its windows come back), replaces `/Applications/Aeri.app`
+and opens it:
+
+```sh
+cargo xtask install
+```
+
 To build the macOS installer:
 
 ```sh
@@ -267,11 +275,13 @@ security import /tmp/aeri-sign.p12 -k ~/Library/Keychains/login.keychain-db \
   -P aeri -T /usr/bin/codesign
 rm /tmp/aeri-sign.*
 
-AERI_SIGN_IDENTITY="Aeri Local Signing" cargo xtask bundle --release
+cargo xtask install
 ```
 
-The first launch of a build signed this way asks once; "Always Allow"
-then holds for later builds signed with the same certificate.
+Bundles find "Aeri Local Signing" in the keychain and use it on their own
+(`AERI_SIGN_IDENTITY` names another certificate). The first launch of a
+build signed this way asks once; "Always Allow" then holds for later builds
+signed with the same certificate.
 
 ## Signing
 
