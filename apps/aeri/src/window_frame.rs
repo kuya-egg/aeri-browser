@@ -445,6 +445,9 @@ pub struct PageInsets {
     /// the points from the window's top to its top edge.
     pub bar: f64,
     pub bar_top: f64,
+    /// The card's top edge meets the strip or the bookmarks bar, with no
+    /// gap: its top corners are square, on the page window and the edge.
+    pub flush_top: bool,
 }
 
 /// The page's place beside whatever is pinned, where `side` is the width
@@ -475,6 +478,7 @@ pub fn page_insets(layout: &Layout, fullscreen: bool, side: f64) -> PageInsets {
             card: kept,
             bar: 0.,
             bar_top: 0.,
+            flush_top: false,
         };
     }
     let far = if cards { gap } else { 0. };
@@ -505,6 +509,10 @@ pub fn page_insets(layout: &Layout, fullscreen: bool, side: f64) -> PageInsets {
         card: cards,
         bar,
         bar_top: band,
+        // The strip or the bookmarks bar sits right on the card's top edge:
+        // rounded corners there would leave a notch of frame showing
+        // between them and the card.
+        flush_top: top_pinned || bar > 0.,
     }
 }
 

@@ -12,7 +12,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
-use super::frame::{Frame, round_page};
+use super::frame::{Frame, round_card};
 use crate::shell::AppMsg;
 
 const GUTTER: f64 = 7.;
@@ -174,7 +174,7 @@ impl Frame {
         })
     }
 
-    pub(super) fn sync_secondary(&self, frame: &NSWindow, page: NSRect, radius: f64) {
+    pub(super) fn sync_secondary(&self, frame: &NSWindow, page: NSRect, insets: &PageInsets) {
         let next = self.panes(page).and_then(|(pair, rects)| {
             let index = usize::from(self.active.get() == Some(pair[0]));
             let tabs = self.tabs.borrow();
@@ -182,7 +182,7 @@ impl Frame {
             if window.frame() != rects[index] {
                 window.setFrame_display(rects[index], true);
             }
-            round_page(&window, radius);
+            round_card(&window, insets);
             Some((window, rects[1].origin.x - GUTTER))
         });
         if let Some(divider) = self.split.divider.borrow().as_ref() {

@@ -377,8 +377,7 @@ impl Frame {
     /// Resizes only the live panes and their controls along a drag or glide.
     pub(super) fn layout_panes(&self, frame: &NSWindow) {
         let page = self.page_rect(frame);
-        let radius = self.insets(frame).radius;
-        self.sync_secondary(frame, page, radius);
+        self.sync_secondary(frame, page, &self.insets(frame));
         let focused = self.focused_rect(page);
         if let Some(window) = self.active_window()
             && window.frame() != focused
@@ -404,8 +403,8 @@ impl Frame {
             return;
         };
         let page = self.page_rect(&frame);
-        let radius = self.insets(&frame).radius;
-        self.sync_secondary(&frame, page, radius);
+        let insets = self.insets(&frame);
+        self.sync_secondary(&frame, page, &insets);
         let focused = self.focused_rect(page);
         let active = self.active.get();
         for (id, tab) in self.tabs.borrow().iter() {
@@ -423,7 +422,7 @@ impl Frame {
             if tab.frame() != rect {
                 tab.setFrame_display(rect, visible);
             }
-            round_page(tab, radius);
+            round_card(tab, &insets);
         }
         if let Some([side, strip]) = self.overlays.borrow().as_ref() {
             let rect = frame.frame();
@@ -528,7 +527,7 @@ impl Frame {
         };
         let home = self.home_tab.get() == Some(tab);
         let page = self.page_rect(&frame);
-        self.sync_secondary(&frame, page, self.insets(&frame).radius);
+        self.sync_secondary(&frame, page, &self.insets(&frame));
         next.setFrame_display(self.focused_rect(page), !home);
         self.order_page(&frame, &next, home);
         let previous = self.shown.replace(Some(next.clone()));
@@ -829,17 +828,19 @@ pub(super) fn style_card(window: &NSWindow) {
 }
 
 /// The page's corner radius: 10 as a card, 0 edge to edge (Search
-/// `Metrics.cardRadius`, passed as `cards ? 10 : 0`, `Stage.swift`).
+/// `Metrics.cardRadius`, passed as `cards ? 10 : 0`, `Stage.swift`), on
+/// every corner.
 pub(super) fn round_page(window: &NSWindow, radius: f64) {
     let Some(view) = window.contentView() else {
         return;
     };
-    // SAFETY: a CALayer message on the main thread; `layer` is live while
+    // SAFETY: CALayer messages on the main thread; `layer` is live while
     // the view is.
     unsafe {
         let layer: *mut AnyObject = msg_send![&*view, layer];
         if let Some(layer) = layer.as_ref() {
             let _: () = msg_send![layer, setCornerRadius: radius];
+            let _: () = msg_send![layer, setMaskedCorners: corners];
         }
     }
 }
