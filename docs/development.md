@@ -45,7 +45,7 @@ apps/aeri/          the binary: GPUI windows and views, AppKit glue (mac.rs)
 apps/aeri-helper/   CEF subprocess binary
 crates/aeri-core/   domain model, rules, persistence; no GPUI, no CEF
 crates/aeri-cef/    CEF adapter for the engine seam
-xtask/              `cargo xtask bundle`, `cargo xtask dmg`, `cargo xtask isolation`
+xtask/              `cargo xtask bundle`, `cargo xtask dev`, `cargo xtask dmg`, `cargo xtask isolation`
 docs/               architecture, decisions, research, roadmap
 .monozukuri/        blueprint (requirements, stack, plan) and phase specs
 ```
@@ -82,6 +82,24 @@ copies Aeri's tab-signals extension into `Contents/Resources/tab-signals`
 bundle. It deletes the old bundle first: macOS
 caches code signatures per file, and copying a new binary over a running or
 recently run one gets it killed ("load code signature error 2").
+
+### Edit loop
+
+```sh
+cargo xtask dev --use-mock-keychain   # build, refresh the bundle, run it
+```
+
+`cargo xtask dev [args…]` builds `aeri` and `aeri-helper`, replaces only the
+executables that changed inside `target/bundle/aeri.app` (remove and copy,
+never overwrite), re-signs the changed helpers and the bundle shallowly, and
+runs the bundle binary with your arguments so logs print to the terminal. It
+assembles the bundle first if there is none. After changing resources or
+`Info.plist`, run `cargo xtask bundle` instead.
+
+`cargo xtask` clears the `CARGO_MANIFEST_DIR` and `CARGO_PKG_*` variables
+that `cargo run` exports before it builds. Left in, they invalidate `ring`'s
+build script, so every bundle and every plain `cargo build` rebuilt `ring`
+and everything above it (minutes).
 
 To build the macOS installer:
 
