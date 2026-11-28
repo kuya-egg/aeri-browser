@@ -33,9 +33,10 @@ use objc2_app_kit::{
     NSApplication, NSApplicationDidBecomeActiveNotification,
     NSApplicationDidResignActiveNotification, NSColor, NSWindow, NSWindowButton,
     NSWindowCollectionBehavior, NSWindowDidBecomeKeyNotification,
-    NSWindowDidBecomeMainNotification, NSWindowDidEnterFullScreenNotification,
-    NSWindowDidExitFullScreenNotification, NSWindowDidResignKeyNotification,
-    NSWindowDidResizeNotification, NSWindowOrderingMode, NSWindowStyleMask,
+    NSWindowDidBecomeMainNotification, NSWindowDidChangeOcclusionStateNotification,
+    NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification,
+    NSWindowDidResignKeyNotification, NSWindowDidResizeNotification, NSWindowOrderingMode,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSNotification, NSNotificationCenter, NSObjectProtocol, NSPoint, NSRect, NSSize,
@@ -207,6 +208,20 @@ impl Frame {
                     &block,
                 ));
             }
+            // GPUI moves the buttons again when the window's occlusion
+            // changes (it comes on screen); straighten the zoom button after.
+            let this = Rc::downgrade(self);
+            let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+                if let Some(frame) = this.upgrade().and_then(|this| this.frame.borrow().clone()) {
+                    align_zoom_button(&frame);
+                }
+            });
+            tokens.push(center.addObserverForName_object_queue_usingBlock(
+                Some(NSWindowDidChangeOcclusionStateNotification),
+                Some(frame),
+                None,
+                &block,
+            ));
             // The window buttons' colour follows the app's and any of the
             // window's family's key state.
             for name in [
@@ -777,6 +792,34 @@ pub(super) fn show_window_buttons(frame: &NSWindow, shown: bool) {
             button.setHidden(!shown);
             button.setAlphaValue(1.0);
         }
+    }
+    align_zoom_button(frame);
+}
+
+/// Puts the frame's own zoom button one pitch after minimise, on its row.
+/// GPUI places all three by `setFrameOrigin` in their superview's
+/// coordinates, as if they shared one; on macOS 27 the zoom button sits in
+/// a view of its own, so it landed about 10 pt off, under and beside
+/// minimise (Observed). Its spot is worked out in minimise's coordinates
+/// and converted into the zoom button's own.
+pub(super) fn align_zoom_button(frame: &NSWindow) {
+    let (Some(close), Some(minimise), Some(zoom)) = (
+        frame.standardWindowButton(NSWindowButton::CloseButton),
+        frame.standardWindowButton(NSWindowButton::MiniaturizeButton),
+        frame.standardWindowButton(NSWindowButton::ZoomButton),
+    ) else {
+        return;
+    };
+    // SAFETY: AppKit view queries on the main thread; the buttons are live.
+    let (Some(row), Some(own)) = (unsafe { minimise.superview() }, unsafe { zoom.superview() })
+    else {
+        return;
+    };
+    let min = minimise.frame().origin;
+    let pitch = min.x - close.frame().origin.x;
+    let wanted = own.convertPoint_fromView(NSPoint::new(min.x + pitch, min.y), Some(&row));
+    if zoom.frame().origin != wanted {
+        zoom.setFrameOrigin(wanted);
     }
 }
 
