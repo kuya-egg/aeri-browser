@@ -36,6 +36,7 @@ mod find;
 mod float;
 mod float_js;
 mod general_prefs;
+mod history_writer;
 mod internal;
 mod launcher;
 mod library;
@@ -128,6 +129,9 @@ use crate::profile_manager::ProfileManager;
 use crate::space_editor::SpaceEditor;
 
 const NEW_TAB_URL: &str = "about:blank";
+/// Most messages handled before the follow-up work (effects, internal
+/// views, session flush) runs, so a long queue still lets it run.
+const BATCH: usize = 64;
 
 pub struct Config {
     pub data_dir: PathBuf,
@@ -169,6 +173,8 @@ struct OpenProfile {
     /// `Profiles/<id>/profile.db`: session, closed tabs, history. Absent if
     /// it could not be opened (logged); the profile still browses.
     db: Option<ProfileDb>,
+    /// History writes, on a thread of their own. Absent with `db`.
+    history: Option<history_writer::HistoryWriter>,
     /// Browsers can be created only once the context has initialized.
     ready: bool,
     /// Windows to open once ready.
@@ -206,8 +212,10 @@ struct Shell {
     launch: Vec<(ProfileId, Plan)>,
     welcome: welcome::Onboarding,
     devtools: Option<DevTools>,
-    /// Profiles whose session changed while handling the current message.
+    /// Profiles whose session changed since it was last written.
     dirty: HashSet<ProfileId>,
+    /// A [`AppMsg::FlushSessions`] is on its way for `dirty`.
+    flush_scheduled: bool,
     windows: Vec<AeriWindow>,
     /// Small windows (`little`).
     little: little::Littles,
@@ -348,6 +356,7 @@ pub fn start(runtime: Rc<Runtime>, config: Config, cx: &mut App) -> Result<()> {
         welcome,
         devtools: runtime.devtools().ok().cloned(),
         dirty: HashSet::new(),
+        flush_scheduled: false,
         windows: Vec::new(),
         little: little::Littles::default(),
         next_window: 1,
@@ -373,8 +382,21 @@ pub fn start(runtime: Rc<Runtime>, config: Config, cx: &mut App) -> Result<()> {
     shell.load_user_themes();
     cx.spawn(async move |cx| {
         while let Some(msg) = rx.next().await {
-            let done = cx.update(|cx| shell.handle(msg, cx));
+            let mut done = cx.update(|cx| shell.handle(msg, cx));
             shell.run_effects();
+            // Messages already waiting (a page load sends several at once)
+            // are handled before the follow-up work below, which then runs
+            // once for the batch.
+            for _ in 0..BATCH {
+                if done {
+                    break;
+                }
+                let Ok(msg) = rx.try_recv() else {
+                    break;
+                };
+                done = cx.update(|cx| shell.handle(msg, cx));
+                shell.run_effects();
+            }
             // Views of internal tabs follow the tabs the message left.
             cx.update(|cx| shell.sync_internal_views(cx));
             shell.run_effects();
@@ -626,6 +648,7 @@ impl Shell {
                 }
             }
             AppMsg::RestCheck => self.rest_check(cx),
+            AppMsg::FlushSessions => self.save_dirty_sessions(cx),
             AppMsg::TabSignal(signal) => self.tab_signal(signal, cx),
             AppMsg::MemoryPressure(level) => self.memory_pressure(level, cx),
             AppMsg::Resources(msg) => self.resources_msg(msg, cx),

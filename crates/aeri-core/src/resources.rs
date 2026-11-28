@@ -20,8 +20,12 @@ pub const REST_AFTER_CHOICES: [Option<Duration>; 5] = [
     Some(Duration::from_secs(4 * 60 * 60)),
 ];
 
-/// Until the Person chooses: an hour unseen.
-pub const DEFAULT_REST_AFTER: Option<Duration> = Some(Duration::from_secs(60 * 60));
+/// Until the Person chooses: half an hour unseen.
+pub const DEFAULT_REST_AFTER: Option<Duration> = Some(Duration::from_secs(30 * 60));
+
+/// The longest a tab goes unseen before it rests while the Mac saves power
+/// (Low Power Mode, or running hot).
+pub const SAVING_POWER_REST_AFTER: Duration = Duration::from_secs(15 * 60);
 
 /// Why a tab with a page stays awake (stage 1's exclusions).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

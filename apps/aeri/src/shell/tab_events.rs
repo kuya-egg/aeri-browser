@@ -135,15 +135,15 @@ impl Shell {
         let title_changed = matches!(event, Event::TitleChanged { .. });
         if (finished || title_changed)
             && records_history(&url)
-            && let Some(db) = self.open.get(&profile).and_then(|open| open.db.as_ref())
+            && let Some(history) = self
+                .open
+                .get(&profile)
+                .and_then(|open| open.history.as_ref())
         {
-            let recorded = if finished {
-                db.record_visit(&url, &title, now())
+            if finished {
+                history.record_visit(url, title, now());
             } else {
-                db.set_history_title(&url, &title)
-            };
-            if let Err(err) = recorded {
-                tracing::warn!(%err, "could not record history");
+                history.set_title(url, title);
             }
         }
     }

@@ -128,7 +128,7 @@ impl CloseAfter {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Tabs {
     pub new_place: NewTabPlace,
@@ -152,6 +152,27 @@ pub struct Tabs {
     pub close_after_hours: CloseAfter,
     /// Every window lists the same open tabs in a space.
     pub mirror: bool,
+}
+
+impl Default for Tabs {
+    /// Background tabs wait to load until first shown: each loaded tab is a
+    /// Chrome window with its own renderer.
+    fn default() -> Self {
+        Self {
+            new_place: NewTabPlace::default(),
+            front_beside: false,
+            new_after_last: false,
+            close_goes_back: false,
+            undo_reopens: false,
+            switcher_behind_first: false,
+            switcher_leaves_out_pins: false,
+            lazy_background: true,
+            popup_windows: false,
+            sleep_dim: false,
+            close_after_hours: CloseAfter::default(),
+            mirror: false,
+        }
+    }
 }
 
 /// Whether the floating video comes out of its tab on its own.

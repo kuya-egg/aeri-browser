@@ -135,12 +135,13 @@ impl ProfileDb {
         Ok(())
     }
 
+    /// Asked on every refresh of a window's chrome, so the statement is
+    /// kept prepared.
     pub fn is_bookmarked(&self, url: &str) -> Result<bool> {
-        Ok(self.conn.query_row(
-            "SELECT EXISTS (SELECT 1 FROM bookmarks WHERE url = ?1)",
-            [url],
-            |row| row.get(0),
-        )?)
+        Ok(self
+            .conn
+            .prepare_cached("SELECT EXISTS (SELECT 1 FROM bookmarks WHERE url = ?1)")?
+            .query_row([url], |row| row.get(0))?)
     }
 
     /// ⌘D: bookmarks `url` at the end of the top level, or, if it is

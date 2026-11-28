@@ -145,10 +145,22 @@ impl Shell {
             Event::AddressChanged { tab, url } => (*tab, Some(url.as_str())),
             _ => return,
         };
-        let Some((_, page, url)) = self.every_page().into_iter().find(|(id, ..)| *id == tab) else {
+        // Found in place: this runs on every address change, so no list of
+        // every page is built for it.
+        let found = self
+            .windows
+            .iter()
+            .map(|w| &w.tabs)
+            .chain(self.open.values().flat_map(|open| {
+                std::iter::once(&open.favourites).chain(open.parked.values().map(|p| &p.tabs))
+            }))
+            .find_map(|tabs| tabs.get(tab));
+        let Some((page, url)) =
+            found.and_then(|item| Some((item.value.cef.clone()?, item.value.url())))
+        else {
             return;
         };
-        let on = self.dusk_wants(address.unwrap_or(&url), cx);
+        let on = self.dusk_wants(address.unwrap_or(url), cx);
         self.later(move |_| page.set_dusk(on));
     }
 
