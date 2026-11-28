@@ -236,10 +236,42 @@ through CEF's `keychain_service_name` settings. The default item, "Chromium
 Safe Storage", is shared by every Chromium-based app. If an old build asks
 for "Chromium Safe Storage", deny it.
 
-Each rebuild changes the ad-hoc signature, so macOS may ask again whether
-`aeri` may use "Aeri Safe Storage". While that prompt is open, page loads
-stall. For scripted runs, pass `--use-mock-keychain` with a throwaway
+Each rebuild changes the ad-hoc signature, so macOS asks again whether
+`aeri` may use "Aeri Safe Storage", even after "Always Allow": that answer
+trusts one signature. While that prompt is open, page loads stall. For
+scripted runs, pass `--use-mock-keychain` with a throwaway
 `AERI_DATA_DIR`.
+
+To be asked once, not once per build, sign every build with the same
+certificate. A self-signed code-signing certificate in the login keychain
+is enough:
+
+```sh
+cat > /tmp/aeri-sign.cnf <<'EOF'
+[req]
+distinguished_name=dn
+prompt=no
+x509_extensions=ext
+[dn]
+CN=Aeri Local Signing
+[ext]
+basicConstraints=critical,CA:false
+keyUsage=critical,digitalSignature
+extendedKeyUsage=critical,codeSigning
+EOF
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config /tmp/aeri-sign.cnf \
+  -keyout /tmp/aeri-sign.key -out /tmp/aeri-sign.crt
+openssl pkcs12 -export -legacy -inkey /tmp/aeri-sign.key -in /tmp/aeri-sign.crt \
+  -out /tmp/aeri-sign.p12 -passout pass:aeri
+security import /tmp/aeri-sign.p12 -k ~/Library/Keychains/login.keychain-db \
+  -P aeri -T /usr/bin/codesign
+rm /tmp/aeri-sign.*
+
+AERI_SIGN_IDENTITY="Aeri Local Signing" cargo xtask bundle --release
+```
+
+The first launch of a build signed this way asks once; "Always Allow"
+then holds for later builds signed with the same certificate.
 
 ## Signing
 

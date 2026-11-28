@@ -195,11 +195,18 @@ fn bundle(release: bool) -> Result<()> {
             bail!("could not set {key}: {status}");
         }
     }
-    // Ad-hoc signature over the whole bundle (helpers and framework
-    // included); the per-binary linker signatures leave it unverifiable.
-    // Hardened runtime stays off for development builds.
+    // One signature over the whole bundle (helpers and framework included);
+    // the per-binary linker signatures leave it unverifiable. Hardened
+    // runtime stays off for development builds.
+    //
+    // Ad hoc by default. An ad hoc signature changes with every build, and
+    // the Keychain item "Aeri Safe Storage" trusts one signature, so each
+    // new build asks for the login password again. `AERI_SIGN_IDENTITY`
+    // names a code-signing certificate (a self-signed one is enough) whose
+    // signature stays the same across builds.
+    let identity = std::env::var("AERI_SIGN_IDENTITY").unwrap_or_else(|_| "-".into());
     let status = std::process::Command::new("codesign")
-        .args(["--force", "--deep", "--sign", "-"])
+        .args(["--force", "--deep", "--sign", &identity])
         .arg(&app)
         .status()?;
     if !status.success() {
