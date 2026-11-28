@@ -14,6 +14,7 @@ use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use super::frame::{Frame, round_card};
 use crate::shell::AppMsg;
+use crate::window_frame::PageInsets;
 
 const GUTTER: f64 = 7.;
 const MIN: f64 = 250.;

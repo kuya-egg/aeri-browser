@@ -540,6 +540,9 @@ impl WindowFrame {
                 .top(px(insets.top as f32 - 1.))
                 .bottom(px(insets.bottom as f32 - 1.))
                 .rounded(px(insets.radius as f32 + 1.))
+                .when(insets.flush_top, |edge| {
+                    edge.rounded_tl(px(0.)).rounded_tr(px(0.))
+                })
                 .border_1()
                 .border_color(theme::c(t.card_border))
                 .bg(theme::c(t.panel))

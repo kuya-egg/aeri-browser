@@ -831,6 +831,27 @@ pub(super) fn style_card(window: &NSWindow) {
 /// `Metrics.cardRadius`, passed as `cards ? 10 : 0`, `Stage.swift`), on
 /// every corner.
 pub(super) fn round_page(window: &NSWindow, radius: f64) {
+    round_corners(window, radius, ALL_CORNERS);
+}
+
+/// Rounds a tab window as the page card: its top corners stay square where
+/// the strip or the bookmarks bar meets its top edge
+/// ([`PageInsets::flush_top`]), as the frame's card edge does.
+pub(super) fn round_card(window: &NSWindow, insets: &PageInsets) {
+    let corners = if insets.flush_top {
+        BOTTOM_CORNERS
+    } else {
+        ALL_CORNERS
+    };
+    round_corners(window, insets.radius, corners);
+}
+
+/// `kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner`: the bottom corners of
+/// an unflipped view's layer.
+const BOTTOM_CORNERS: usize = 0b0011;
+const ALL_CORNERS: usize = 0b1111;
+
+fn round_corners(window: &NSWindow, radius: f64, corners: usize) {
     let Some(view) = window.contentView() else {
         return;
     };
