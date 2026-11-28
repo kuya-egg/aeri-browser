@@ -219,6 +219,10 @@ wrap_app! {
                 // See `devtools`: the pipe is a browser-target session, and
                 // this switch lets it open extension popups.
                 command_line.append_switch(Some(&CefString::from("remote-debugging-pipe")));
+                // Chromium treats the pipe as automation and sets
+                // `navigator.webdriver`, which Google and other sites read as
+                // a bot (captcha on every search). Aeri is not automated.
+                append_to_list(command_line, "disable-blink-features", "AutomationControlled");
                 command_line
                     .append_switch(Some(&CefString::from("enable-unsafe-extension-debugging")));
                 // Tab signals report through the pipe, so they need it too.
