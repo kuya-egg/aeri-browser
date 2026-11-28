@@ -1,14 +1,14 @@
 //! Refreshing windows: mirroring a window's favourites, tabs and spaces in
 //! its sidebar, strip and address bar.
 
-use aeri_core::ids::ProfileId;
+use aeri_core::ids::{ProfileId, TabId};
 use aeri_core::profile_db::records_history;
 use aeri_core::workspace::Item;
 use gpui::App;
 
 use super::tabs::TabEntry;
 use super::windows::host_of;
-use super::{NEW_TAB_URL, Shell};
+use super::{NEW_TAB_URL, OpenProfile, Shell};
 use crate::window_frame::{SidebarTab, SpaceChip};
 
 impl Shell {
@@ -24,19 +24,15 @@ impl Shell {
         }
     }
 
-    /// Mirrors the window's favourites, tabs and spaces in the sidebar and
-    /// the shown tab in the address bar and the strip.
-    pub(super) fn refresh_window(&self, window_id: u64, cx: &mut App) {
-        self.find_follow_shown(window_id, cx);
-        self.peek_follow_shown(window_id);
-        let Some(w) = self.window(window_id) else {
-            return;
-        };
-        let Some(open) = self.open.get(&w.profile) else {
-            return;
-        };
-        let shown = w.shown();
-        let row = |item: &Item<TabEntry>, favourite: bool| SidebarTab {
+    /// The sidebar's row for `item`.
+    fn sidebar_row(
+        &self,
+        open: &OpenProfile,
+        item: &Item<TabEntry>,
+        favourite: bool,
+        shown: Option<TabId>,
+    ) -> SidebarTab {
+        SidebarTab {
             id: item.id,
             label: item.value.label(),
             host: host_of(item.value.url()),
@@ -55,7 +51,44 @@ impl Shell {
             audible: item.value.model.activity.audible,
             asleep: item.value.cef.is_none(),
             reading: self.reading_of(item.id),
+        }
+    }
+
+    /// Mirrors one of the window's own tabs, not the one it shows, in its
+    /// sidebar row only: its title, icon, address or loading changed, and
+    /// nothing else the window draws depends on that. Falls back to
+    /// [`Shell::refresh_window`] when the row is not listed yet.
+    pub(super) fn refresh_tab_row(&self, window_id: u64, tab: TabId, cx: &mut App) {
+        let Some(w) = self.window(window_id) else {
+            return;
         };
+        let (Some(open), Some(item)) = (self.open.get(&w.profile), w.tabs.get(tab)) else {
+            return;
+        };
+        let row = self.sidebar_row(open, item, false, w.shown());
+        let listed = w
+            .frame_window
+            .update(cx, |frame, _, cx| frame.set_tab_row(row, cx))
+            .unwrap_or(false);
+        if !listed {
+            self.refresh_window(window_id, cx);
+        }
+    }
+
+    /// Mirrors the window's favourites, tabs and spaces in the sidebar and
+    /// the shown tab in the address bar and the strip.
+    pub(super) fn refresh_window(&self, window_id: u64, cx: &mut App) {
+        self.find_follow_shown(window_id, cx);
+        self.peek_follow_shown(window_id);
+        let Some(w) = self.window(window_id) else {
+            return;
+        };
+        let Some(open) = self.open.get(&w.profile) else {
+            return;
+        };
+        let shown = w.shown();
+        let row =
+            |item: &Item<TabEntry>, favourite: bool| self.sidebar_row(open, item, favourite, shown);
         let tabs: Vec<SidebarTab> = open
             .favourites
             .iter()

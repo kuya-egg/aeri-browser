@@ -1,6 +1,7 @@
 //! The page events that update a window's tabs.
 
 use aeri_core::engine::Event;
+use aeri_core::ids::TabId;
 use aeri_core::profile_db::records_history;
 use aeri_core::tab::LoadState;
 use gpui::App;
@@ -120,6 +121,10 @@ impl Shell {
             return;
         }
         match spot {
+            // A tab the window does not show changes only its own row.
+            Spot::Window(window_id) if row_only(&event) && !self.on_screen(window_id, tab_id) => {
+                self.refresh_tab_row(window_id, tab_id, cx);
+            }
             Spot::Window(window_id) => self.refresh_window(window_id, cx),
             Spot::Favourite(profile) => self.refresh_profile_windows(profile, cx),
             Spot::Parked(..) => {}
@@ -146,5 +151,26 @@ impl Shell {
                 history.set_title(url, title);
             }
         }
+    }
+}
+
+/// Page events that change nothing about a tab but its sidebar row while
+/// the window does not show it. Sound changes the player, so it is not one.
+fn row_only(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::TitleChanged { .. }
+            | Event::FaviconChanged { .. }
+            | Event::LoadingChanged { .. }
+            | Event::AddressChanged { .. }
+    )
+}
+
+impl Shell {
+    /// Whether `window_id` shows `tab`, alone or in its split.
+    fn on_screen(&self, window_id: u64, tab: TabId) -> bool {
+        self.window(window_id).is_some_and(|w| {
+            w.shown() == Some(tab) || w.active_split().is_some_and(|pair| pair.contains(&tab))
+        })
     }
 }
